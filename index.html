@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>国家模拟器 - 多国争霸</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+            max-width: 1200px;
+            margin: auto;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .resource-panel { background: #e3f2fd; }
+        .military-panel { background: #ffebee; }
+        .diplomacy-panel { background: #f3e5f5; max-height: 400px; overflow-y: auto; }
+        .event-panel { background: #fff3e0; }
+        
+        .nation-card {
+            padding: 10px;
+            margin: 5px 0;
+            border-left: 4px solid;
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        .nation-card:hover { transform: translateX(5px); }
+        .nation-hostile { border-color: #ff4444; }
+        .nation-allied { border-color: #4CAF50; }
+        .nation-neutral { border-color: #ffc107; }
+        
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+        }
+        button:disabled { background-color: #cccccc; }
+        
+        .nation-detail {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="panel resource-panel">
+        <h2>国家资源</h2>
+        <p>金钱: <span id="money">0</span></p>
+        <p>人口: <span id="population">1000</span></p>
+        <p>食物: <span id="food">1000</span></p>
+        <p>满意度: <span id="happiness">80</span>%</p>
+        <p>影响力: <span id="influence">100</span></p>
+    </div>
+
+    <div class="panel military-panel">
+        <h2>军事力量</h2>
+        <p>军队: <span id="troops">0</span> 
+            <button onclick="recruitTroops()">招募 (需要 100金钱 50食物)</button>
+        </p>
+        <p>防御工事: <span id="fortification">0</span>级
+            <button onclick="buildFortification()">升级 (需要 200金钱)</button>
+        </p>
+    </div>
+
+    <div class="panel diplomacy-panel">
+        <h2>国际外交（点击国家查看详情）</h2>
+        <div id="nations-container"></div>
+    </div>
+
+    <div class="panel event-panel" id="event-panel" style="display: none;">
+        <h3>国家事件</h3>
+        <p id="event-text"></p>
+        <button onclick="handleEventChoice(1)">选择1</button>
+        <button onclick="handleEventChoice(2)">选择2</button>
+    </div>
+
+    <div class="nation-detail" id="nation-detail">
+        <h3 id="detail-name"></h3>
+        <p>关系：<span id="detail-relation"></span></p>
+        <p>军事力量：<span id="detail-military"></span></p>
+        <p>经济实力：<span id="detail-economy"></span></p>
+        <p>侵略性：<span id="detail-aggression"></span></p>
+        <div id="diplomacy-actions"></div>
+        <button onclick="closeDetail()">关闭</button>
+    </div>
+
+    <button onclick="saveGame()">保存进度</button>
+    <button onclick="loadGame()">加载进度</button>
+
+    <script>
+        // 游戏配置
+        const NATION_COUNT = 15;
+        const NATION_NAMES = [
+            "阿尔卡迪亚", "诺兰德联邦", "东境联合", "西海同盟", "南陆帝国",
+            "北境王国", "中央共和国", "翡翠公国", "钢铁联邦", "晨曦王朝",
+            "暮光议会", "星辉城邦", "荒漠酋长国", "森林部族", "群岛联邦"
+        ];
+
+        // 游戏状态
+        let gameState = {
+            money: 0,
+            population: 1000,
+            food: 1000,
+            happiness: 80,
+            influence: 100,
+            buildings: { farm: 0, factory: 0 },
+            military: { troops: 0, fortification: 0 },
+            nations: [],
+            lastUpdate: Date.now()
+        };
+
+        // 初始化游戏
+        function initGame() {
+            gameState.nations = NATION_NAMES.slice(0, NATION_COUNT).map(name => ({
+                name,
+                military: Math.floor(Math.random() * 500 + 500),
+                economy: Math.floor(Math.random() * 1000 + 1000),
+                aggression: Math.random().toFixed(2),
+                relation: 'neutral',
+                lastAction: Date.now(),
+                treaties: []
+            }));
+            loadGame();
+            gameLoop();
+        }
+
+        // 游戏主循环
+        function gameLoop() {
+            const now = Date.now();
+            const deltaTime = (now - gameState.lastUpdate) / 1000;
+            
+            updateResources(deltaTime);
+            updateInternationalRelations(deltaTime);
+            checkEvents();
+            updateDisplay();
+            
+            gameState.lastUpdate = now;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 资源系统
+        function updateResources(deltaTime) {
+            gameState.food += gameState.buildings.farm * 10 * deltaTime;
+            gameState.money += gameState.buildings.factory * 5 * deltaTime;
+            gameState.food -= gameState.population * 0.1 * deltaTime;
+            
+            if(gameState.food < gameState.population * 0.05) {
+                gameState.happiness -= 1 * deltaTime;
+            } else {
+                gameState.happiness = Math.min(100, gameState.happiness + 0.1 * deltaTime);
+            }
+        }
+
+        // 国际关系系统
+        function updateInternationalRelations(deltaTime) {
+            gameState.nations.forEach(nation => {
+                if(Math.random() < 0.01) {
+                    const relations = ['hostile', 'neutral', 'allied'];
+                    nation.relation = relations[Math.floor(Math.random()*3)];
+                }
+                if(Math.random() < nation.aggression / 10) {
+                    nation.military *= 1.02;
+                }
+                nation.economy *= 1 + (Math.random()*0.02 - 0.01);
+            });
+        }
+
+        // 保存/加载系统
+        function saveGame() {
+            localStorage.setItem('saveGame', JSON.stringify(gameState));
+            showAlert("游戏已保存！");
+        }
+
+        function loadGame() {
+            const save = localStorage.getItem('saveGame');
+            if(save) {
+                gameState = {...gameState, ...JSON.parse(save)};
+                showAlert("游戏已加载！");
+            }
+        }
+
+        // 初始化
+        initGame();
+    </script>
+</body>
+</html>
